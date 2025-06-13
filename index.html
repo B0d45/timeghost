@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Time Tracking App</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://unpkg.com/nostr-tools@1.17.0/lib/nostr.bundle.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f4f4f4;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .timer-section, .project-section, .report-section, .login-section, .entries-section, .donation-section {
+            margin-bottom: 20px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            cursor: pointer;
+            border-radius: 4px;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        button.delete {
+            background-color: #dc3545;
+        }
+        button.delete:hover {
+            background-color: #c82333;
+        }
+        select, input[type="text"], input[type="date"], input[type="number"] {
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .timer-display {
+            font-size: 24px;
+            text-align: center;
+            margin: 10px 0;
+        }
+        .error {
+            color: red;
+            font-size: 14px;
+        }
+        .hidden {
+            display: none;
+        }
+        .edit-input {
+            width: 100%;
+            box-sizing: border-box;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Time Tracking App</h1>
+
+        <!-- Login Section -->
+        <div class="login-section" id="loginSection">
+            <h2>Nostr Login</h2>
+            <p>Public Key: <span id="pubkeyDisplay">Not logged in</span></p>
+            <input type="text" id="customRelayInput" placeholder="Custom Relay (e.g. wss://my-relay.com or ws://abcdefg.onion)">
+            <button onclick="addCustomRelay()">Add Relay</button>
+            <select id="relaySelect" multiple>
+                <option value="wss://relay.damus.io" selected>wss://relay.damus.io</option>
+                <option value="wss://nos.lol" selected>wss://nos.lol</option>
+                <option value="wss://nostr.wine" selected>wss://nostr.wine</option>
+                <option value="wss://relay.snort.social">wss://relay.snort.social</option>
+                <option value="wss://nostr.fmt.wiz.biz">wss://nostr.fmt.wiz.biz</option>
+            </select>
+            <button onclick="loginWithAlby()">Log in with Alby</button>
+            <button onclick="generateNostrKeys()">Generate New Keys</button>
+            <p id="generatedKeyDisplay" class="hidden"></p>
+            <p class="error" id="loginError"></p>
+        </div>
+
+        <!-- Timer Section -->
+        <div class="timer-section hidden" id="timerSection">
+            <h2>Time Tracking</h2>
+            <div class="timer-display" id="timerDisplay">00:00:00</div>
+            <select id="projectSelect">
+                <option value="">No Project Selected</option>
+            </select>
+            <input type="text" id="projectFreeText" placeholder="Project (optional)" class="hidden">
+            <select id="clientSelect">
+                <option value="">No Client Selected</option>
+            </select>
+            <input type="text" id="clientFreeText" placeholder="Client (optional)" class="hidden">
+            <button id="startButton" onclick="startTimer()">Start</button>
+            <button id="stopButton" onclick="stopTimer()" disabled>Stop</button>
+        </div>
+
+        <!-- Entries Section -->
+        <div class="entries-section hidden" id="entriesSection">
+            <h2>Saved Time Entries</h2>
+            <table id="entriesTable">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Project</th>
+                        <th>Client</th>
+                        <th>Duration</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody id="entriesBody"></tbody>
+            </table>
+        </div>
+
+        <!-- Project/Client Management -->
+        <div class="project-section hidden" id="projectSection">
+            <h2>Projects and Clients</h2>
+            <input type="text" id="projectNameInput" placeholder="Project Name">
+            <button onclick="addProject()">Add Project</button>
+            <input type="text" id="clientNameInput" placeholder="Client Name">
+            <button onclick="addClient()">Add Client</button>
+            <h3>Projects</h3>
+            <ul id="projectList"></ul>
+            <h3>Clients</h3>
+            <ul id="clientList"></ul>
+        </div>
+
+        <!-- Report Section -->
+        <div class="report-section hidden" id="reportSection">
+            <h2>Reports</h2>
+            <select id="reportFilter">
+                <option value="day">Day</option>
+                <option value="week">Week</option>
+                <option value="month">Month</option>
+            </select>
+            <input type="date" id="reportDate">
+            <button onclick="generateReport()">Generate Report</button>
+            <button onclick="exportToPDF()">PDF Export</button>
+            <table id="reportTable" class="hidden">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Project</th>
+                        <th>Client</th>
+                        <th>Duration</th>
+                    </tr>
+                </thead>
+                <tbody id="reportBody"></tbody>
+            </table>
+            <p>Total Hours: <span id="totalHours">0</span></p>
+        </div>
+
+        <!-- Donation Section -->
+        <div class="donation-section hidden" id="donationSection">
+            <h2>Donations</h2>
+            <p>Donate some Sats here:</p>
+            <input type="number" id="donationAmount" placeholder="Amount in Sats (e.g. 1000)" min="1">
+            <button onclick="makeLightningDonation()">Donate Now</button>
+            <p class="error" id="donationError"></p>
+        </div>
+    </div>
+
+    <script>
+        const { jsPDF } = window.jspdf;
+        let timerInterval = null;
+        let startTime = null;
+        let elapsedTime = 0;
+        let isLoggedIn = false;
+        let publicKey = null;
+        let relays = [];
+        let pool = null;
+
+        // Your Lightning Address
+        const LIGHTNING_ADDRESS = 'SET_LIGHTNING_ADRESS';
+
+        // Data Structures
+        let timeEntries = JSON.parse(localStorage.getItem('timeEntries')) || [];
+        let projects = JSON.parse(localStorage.getItem('projects')) || [];
+        let clients = JSON.parse(localStorage.getItem('clients')) || [];
+
+        // Initialization
+        document.addEventListener('DOMContentLoaded', () => {
+            setTodayDate();
+            loadCustomRelay();
+            updateSelectOptions();
+            updateLists();
+            updateEntriesTable();
+            console.log('Initialized timeEntries:', timeEntries);
+            toggleFreeTextFields();
+        });
+
+        // Load Custom Relay
+        function loadCustomRelay() {
+            const customRelay = localStorage.getItem('customRelay');
+            if (customRelay) {
+                document.getElementById('customRelayInput').value = customRelay;
+                const relaySelect = document.getElementById('relaySelect');
+                const option = document.createElement('option');
+                option.value = customRelay;
+                option.text = customRelay;
+                option.selected = true;
+                relaySelect.appendChild(option);
+            }
+        }
+
+        // Add Custom Relay
+        function addCustomRelay() {
+            const customRelayInput = document.getElementById('customRelayInput').value.trim();
+            const relaySelect = document.getElementById('relaySelect');
+            // Validation for wss:// or Onion links (ws://*.onion or wss://*.onion)
+            const isValidRelay = /^(wss:\/\/[a-zA-Z0-9-.]+)|(wss?:\/\/[a-zA-Z0-9-]+\.onion)$/.test(customRelayInput);
+            if (isValidRelay) {
+                // Check if relay already exists
+                const exists = Array.from(relaySelect.options).some(option => option.value === customRelayInput);
+                if (!exists) {
+                    const option = document.createElement('option');
+                    option.value = customRelayInput;
+                    option.text = customRelayInput;
+                    option.selected = true;
+                    relaySelect.appendChild(option);
+                    localStorage.setItem('customRelay', customRelayInput);
+                    document.getElementById('loginError').textContent = `Custom relay ${customRelayInput} added.`;
+                } else {
+                    document.getElementById('loginError').textContent = 'This relay is already in the list.';
+                }
+            } else {
+                document.getElementById('loginError').textContent = 'Please enter a valid relay URL (e.g. wss://my-relay.com or ws://abcdefg.onion).';
+            }
+        }
+
+        // Show/Hide Free Text Fields Based on Dropdown Selection
+        function toggleFreeTextFields() {
+            const projectSelect = document.getElementById('projectSelect');
+            const clientSelect = document.getElementById('clientSelect');
+            const projectFreeText = document.getElementById('projectFreeText');
+            const clientFreeText = document.getElementById('clientFreeText');
+
+            projectSelect.addEventListener('change', () => {
+                projectFreeText.classList.toggle('hidden', projectSelect.value !== '');
+                if (projectSelect.value !== '') projectFreeText.value = '';
+            });
+            clientSelect.addEventListener('change', () => {
+                clientFreeText.classList.toggle('hidden', clientSelect.value !== '');
+                if (clientSelect.value !== '') clientFreeText.value = '';
+            });
+        }
+
+        // Nostr Login with Alby
+        async function loginWithAlby() {
+            try {
+                if (!window.nostr) {
+                    throw new Error('Alby extension not found. Please install Alby.');
+                }
+                publicKey = await window.nostr.getPublicKey();
+                document.getElementById('pubkeyDisplay').textContent = window.NostrTools.nip19.npubEncode(publicKey);
+                isLoggedIn = true;
+
+                // Get relays from dropdown selection
+                const relaySelect = document.getElementById('relaySelect');
+                relays = Array.from(relaySelect.selectedOptions).map(option => option.value);
+
+                if (relays.length === 0) {
+                    throw new Error('Please select at least one relay.');
+                }
+
+                // Initialize SimplePool for multiple relays
+                pool = new window.NostrTools.SimplePool();
+
+                // Connect to relays
+                await Promise.all(relays.map(async (url) => {
+                    try {
+                        const relay = await pool.ensureRelay(url);
+                        console.log('Connected to relay:', url);
+                    } catch (err) {
+                        console.warn('Error connecting to relay:', url, err);
+                        document.getElementById('loginError').textContent += ` Warning: Connection to ${url} failed. For Onion relays, ensure a Tor proxy (e.g. Tor Browser) is used.`;
+                    }
+                }));
+
+                // Fetch existing events
+                await fetchNostrEvents();
+
+                toggleSections();
+                document.getElementById('loginError').textContent = '';
+            } catch (err) {
+                document.getElementById('loginError').textContent = 'Login failed: ' + err.message;
+            }
+        }
+
+        // Fetch Existing Nostr Events
+        async function fetchNostrEvents() {
+            try {
+                const filter = {
+                    kinds: [30000],
+                    authors: [publicKey]
+                };
+                const events = await pool.list(relays, [filter]);
+                console.log('Fetched Nostr events:', events);
+
+                timeEntries = [];
+                projects = [];
+                clients = [];
+
+                events.forEach(event => {
+                    const type = event.tags.find(tag => tag[0] === 't')?.[1];
+                    try {
+                        const data = JSON.parse(event.content);
+                        if (type === 'time-entry') {
+                            timeEntries.push(data);
+                        } else if (type === 'project') {
+                            projects.push(data);
+                        } else if (type === 'client') {
+                            clients.push(data);
+                        }
+                    } catch (e) {
+                        console.warn('Error parsing event content:', event);
+                    }
+                });
+
+                // Save to localStorage as fallback
+                saveData('timeEntries', timeEntries);
+                saveData('projects', projects);
+                saveData('clients', clients);
+
+                updateSelectOptions();
+                updateLists();
+                updateEntriesTable();
+            } catch (err) {
+                console.error('Error fetching events:', err);
+                document.getElementById('loginError').textContent = 'Error loading data from relay. Local data used. For Onion relays, check Tor proxy settings.';
+            }
+        }
+
+        // Create and Publish Nostr Event
+        async function publishNostrEvent(type, data) {
+            try {
+                const event = {
+                    kind: 30000,
+                    pubkey: publicKey,
+                    created_at: Math.floor(Date.now() / 1000),
+                    tags: [['t', type]],
+                    content: JSON.stringify(data)
+                };
+                const signedEvent = await window.nostr.signEvent(event);
+                await pool.publish(relays, signedEvent);
+                console.log(`Nostr event published (${type}):`, signedEvent);
+            } catch (err) {
+                console.error('Error publishing Nostr event:', err);
+                document.getElementById('loginError').textContent = 'Error saving data to relay. Local data saved. For Onion relays, check Tor proxy.';
+            }
+        }
+
+        // Key Generation
+        function generateNostrKeys() {
+            try {
+                const privKey = window.NostrTools.generatePrivateKey();
+                const nsec = window.NostrTools.nip19.nsecEncode(privKey);
+                const pubKey = window.NostrTools.getPublicKey(privKey);
+                const npub = window.NostrTools.nip19.npubEncode(pubKey);
+                document.getElementById('generatedKeyDisplay').textContent = 
+                    `Private Key (save securely!): ${nsec}\nPublic Key: ${npub}`;
+                document.getElementById('generatedKeyDisplay').classList.remove('hidden');
+                document.getElementById('loginError').textContent = 'Keys generated. Please import the private key into Alby.';
+            } catch (err) {
+                document.getElementById('loginError').textContent = 'Key generation failed: ' + err.message;
+            }
+        }
+
+        function toggleSections() {
+            document.getElementById('loginSection').classList.toggle('hidden', isLoggedIn);
+            document.getElementById('timerSection').classList.toggle('hidden', !isLoggedIn);
+            document.getElementById('entriesSection').classList.toggle('hidden', !isLoggedIn);
+            document.getElementById('projectSection').classList.toggle('hidden', !isLoggedIn);
+            document.getElementById('reportSection').classList.toggle('hidden', !isLoggedIn);
+            document.getElementById('donationSection').classList.toggle('hidden', !isLoggedIn);
+        }
+
+        // Timer Functions
+        function startTimer() {
+            if (!timerInterval) {
+                startTime = Date.now();
+                elapsedTime = 0;
+                timerInterval = setInterval(updateTimer, 1000);
+                document.getElementById('startButton').disabled = true;
+                document.getElementById('stopButton').disabled = false;
+            }
+        }
+
+        function stopTimer() {
+            if (timerInterval) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+                elapsedTime = Date.now() - startTime;
+                const projectId = parseInt(document.getElementById('projectSelect').value) || null;
+                const clientId = parseInt(document.getElementById('clientSelect').value) || null;
+                const projectFreeText = document.getElementById('projectFreeText').value || '';
+                const clientFreeText = document.getElementById('clientFreeText').value || '';
+                
+                const entry = {
+                    id: Date.now(),
+                    projectId,
+                    clientId,
+                    projectFreeText: projectId ? '' : projectFreeText,
+                    clientFreeText: clientId ? '' : clientFreeText,
+                    start: startTime,
+                    end: Date.now(),
+                    duration: elapsedTime
+                };
+                timeEntries.push(entry);
+                saveData('timeEntries', timeEntries);
+                publishNostrEvent('time-entry', entry);
+                console.log('New time entry:', entry);
+                updateEntriesTable();
+                
+                elapsedTime = 0;
+                startTime = null;
+                document.getElementById('timerDisplay').textContent = '00:00:00';
+                document.getElementById('startButton').disabled = false;
+                document.getElementById('stopButton').disabled = true;
+            }
+        }
+
+        function updateTimer() {
+            elapsedTime = Date.now() - startTime;
+            const hours = Math.floor(elapsedTime / 3600000);
+            const minutes = Math.floor((elapsedTime % 3600000) / 60000);
+            const seconds = Math.floor((elapsedTime % 60000) / 1000);
+            document.getElementById('timerDisplay').textContent = 
+                `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+        }
+
+        function pad(num) {
+            return num.toString().padStart(2, '0');
+        }
+
+        // Format Duration
+        function formatDuration(ms) {
+            const hours = Math.floor(ms / 3600000);
+            const minutes = Math.floor((ms % 3600000) / 60000);
+            const seconds = Math.floor((ms % 60000) / 1000);
+            return `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+        }
+
+        // Display Time Entries
+        function updateEntriesTable() {
+            const entriesBody = document.getElementById('entriesBody');
+            entriesBody.innerHTML = '';
+            console.log('Current timeEntries:', timeEntries);
+            if (timeEntries.length === 0) {
+                entriesBody.innerHTML = '<tr><td colspan="5">No entries available.</td></tr>';
+                return;
+            }
+            timeEntries.forEach(entry => {
+                const project = entry.projectId ? projects.find(p => p.id === entry.projectId) : null;
+                const client = entry.clientId ? clients.find(c => c.id === entry.clientId) : null;
+                const durationFormatted = formatDuration(entry.duration);
+                const projectDisplay = entry.projectFreeText || (project ? project.name : 'No Project');
+                const clientDisplay = entry.clientFreeText || (client ? client.name : 'No Client');
+                entriesBody.innerHTML += `
+                    <tr id="entry-${entry.id}">
+                        <td>${new Date(entry.start).toLocaleDateString('en-GB')}</td>
+                        <td class="project-cell">${projectDisplay}</td>
+                        <td class="client-cell">${clientDisplay}</td>
+                        <td>${durationFormatted}</td>
+                        <td>
+                            <button onclick="editEntry(${entry.id})">Edit</button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        // Edit Time Entry
+        function editEntry(entryId) {
+            const entry = timeEntries.find(e => e.id === entryId);
+            if (!entry) return;
+
+            const row = document.getElementById(`entry-${entryId}`);
+            const projectCell = row.querySelector('.project-cell');
+            const clientCell = row.querySelector('.client-cell');
+
+            projectCell.innerHTML = `<input type="text" class="edit-input" value="${entry.projectFreeText || (entry.projectId ? projects.find(p => p.id === entry.projectId)?.name : '')}">`;
+            clientCell.innerHTML = `<input type="text" class="edit-input" value="${entry.clientFreeText || (entry.clientId ? clients.find(c => c.id === entry.clientId)?.name : '')}">`;
+
+            const actionCell = row.querySelector('td:last-child');
+            actionCell.innerHTML = `
+                <button onclick="saveEntry(${entryId})">Save</button>
+                <button onclick="cancelEdit(${entryId})">Cancel</button>
+            `;
+        }
+
+        function saveEntry(entryId) {
+            const entry = timeEntries.find(e => e.id === entryId);
+            if (!entry) return;
+
+            const row = document.getElementById(`entry-${entryId}`);
+            const projectInput = row.querySelector('.project-cell input').value;
+            const clientInput = row.querySelector('.client-cell input').value;
+
+            entry.projectId = null;
+            entry.clientId = null;
+            entry.projectFreeText = projectInput;
+            entry.clientFreeText = clientInput;
+
+            saveData('timeEntries', timeEntries);
+            publishNostrEvent('time-entry', entry);
+            updateEntriesTable();
+        }
+
+        function cancelEdit(entryId) {
+            updateEntriesTable();
+        }
+
+        // Project/Client Management
+        function addProject() {
+            const name = document.getElementById('projectNameInput').value;
+            if (name) {
+                const project = { id: Date.now(), name };
+                projects.push(project);
+                saveData('projects', projects);
+                publishNostrEvent('project', project);
+                console.log('New project:', project);
+                updateSelectOptions();
+                updateLists();
+                document.getElementById('projectNameInput').value = '';
+            }
+        }
+
+        function addClient() {
+            const name = document.getElementById('clientNameInput').value;
+            if (name) {
+                const client = { id: Date.now(), name };
+                clients.push(client);
+                saveData('clients', clients);
+                publishNostrEvent('client', client);
+                console.log('New client:', client);
+                updateSelectOptions();
+                updateLists();
+                document.getElementById('clientNameInput').value = '';
+            }
+        }
+
+        function deleteProject(projectId) {
+            if (!confirm('Do you really want to delete this project? Linked time entries will remain as free text.')) return;
+            const project = projects.find(p => p.id === projectId);
+            projects = projects.filter(p => p.id !== projectId);
+            timeEntries.forEach(entry => {
+                if (entry.projectId === projectId) {
+                    entry.projectFreeText = project?.name || '';
+                    entry.projectId = null;
+                    publishNostrEvent('time-entry', entry);
+                }
+            });
+            saveData('projects', projects);
+            saveData('timeEntries', timeEntries);
+            publishNostrEvent('project-deleted', { id: projectId });
+            updateSelectOptions();
+            updateLists();
+            updateEntriesTable();
+        }
+
+        function deleteClient(clientId) {
+            if (!confirm('Do you really want to delete this client? Linked time entries will remain as free text.')) return;
+            const client = clients.find(c => c.id === clientId);
+            clients = clients.filter(c => c.id !== clientId);
+            timeEntries.forEach(entry => {
+                if (entry.clientId === clientId) {
+                    entry.clientFreeText = client?.name || '';
+                    entry.clientId = null;
+                    publishNostrEvent('time-entry', entry);
+                }
+            });
+            saveData('clients', clients);
+            saveData('timeEntries', timeEntries);
+            publishNostrEvent('client-deleted', { id: clientId });
+            updateSelectOptions();
+            updateLists();
+            updateEntriesTable();
+        }
+
+        function updateSelectOptions() {
+            const projectSelect = document.getElementById('projectSelect');
+            const clientSelect = document.getElementById('clientSelect');
+            projectSelect.innerHTML = '<option value="">No Project Selected</option>' + 
+                projects.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+            clientSelect.innerHTML = '<option value="">No Client Selected</option>' + 
+                clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+        }
+
+        function updateLists() {
+            const projectList = document.getElementById('projectList');
+            const clientList = document.getElementById('clientList');
+            projectList.innerHTML = projects.map(p => `<li>${p.name} <button class="delete" onclick="deleteProject(${p.id})">Delete</button></li>`).join('');
+            clientList.innerHTML = clients.map(c => `<li>${c.name} <button class="delete" onclick="deleteClient(${c.id})">Delete</button></li>`).join('');
+        }
+
+        // Reports
+        function setTodayDate() {
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('reportDate').value = today;
+        }
+
+        function generateReport() {
+            const filter = document.getElementById('reportFilter').value;
+            const dateInput = document.getElementById('reportDate').value;
+            if (!dateInput) {
+                alert('Please select a date.');
+                return;
+            }
+
+            const selectedDate = new Date(dateInput);
+            selectedDate.setHours(0, 0, 0, 0);
+            let startDate, endDate;
+
+            if (filter === 'day') {
+                startDate = new Date(selectedDate);
+                endDate = new Date(selectedDate);
+                endDate.setDate(endDate.getDate() + 1);
+            } else if (filter === 'week') {
+                startDate = new Date(selectedDate);
+                startDate.setDate(startDate.getDate() - startDate.getDay() + 1);
+                endDate = new Date(startDate);
+                endDate.setDate(endDate.getDate() + 7);
+            } else if (filter === 'month') {
+                startDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+                endDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 1);
+            }
+
+            console.log('Filter:', filter, 'Start:', startDate, 'End:', endDate);
+            console.log('All timeEntries:', timeEntries);
+
+            const filteredEntries = timeEntries.filter(entry => {
+                const entryDate = new Date(entry.start);
+                entryDate.setHours(0, 0, 0, 0);
+                return entryDate >= startDate && entryDate < endDate;
+            });
+
+            console.log('Filtered entries:', filteredEntries);
+
+            const reportBody = document.getElementById('reportBody');
+            reportBody.innerHTML = '';
+            let totalDuration = 0;
+
+            if (filteredEntries.length === 0) {
+                reportBody.innerHTML = '<tr><td colspan="4">No entries found for the period.</td></tr>';
+            } else {
+                filteredEntries.forEach(entry => {
+                    const project = entry.projectId ? projects.find(p => p.id === entry.projectId) : null;
+                    const client = entry.clientId ? clients.find(c => c.id === clientId) : null;
+                    const durationFormatted = formatDuration(entry.duration);
+                    const projectDisplay = entry.projectFreeText || (project ? project.name : 'No Project');
+                    const clientDisplay = entry.clientFreeText || (client ? client.name : 'No Client');
+                    totalDuration += entry.duration;
+                    reportBody.innerHTML += `
+                        <tr>
+                            <td>${new Date(entry.start).toLocaleDateString('en-GB')}</td>
+                            <td>${projectDisplay}</td>
+                            <td>${clientDisplay}</td>
+                            <td>${durationFormatted}</td>
+                        </tr>
+                    `;
+                });
+            }
+
+            document.getElementById('totalHours').textContent = formatDuration(totalDuration);
+            document.getElementById('reportTable').classList.remove('hidden');
+        }
+
+        function exportToPDF() {
+            const reportBody = document.getElementById('reportBody');
+            if (!reportBody.hasChildNodes() || reportBody.querySelector('tr td').textContent.includes('No entries')) {
+                alert('Please generate a report with entries first.');
+                return;
+            }
+
+            const doc = new jsPDF();
+            doc.text('Time Tracking Report', 10, 10);
+            doc.autoTable({
+                head: [['Date', 'Project', 'Client', 'Duration']],
+                body: Array.from(reportBody.querySelectorAll('tr')).map(row => 
+                    Array.from(row.cells).map(cell => cell.textContent)
+                ),
+                startY: 20
+            });
+            doc.text(`Total Hours: ${document.getElementById('totalHours').textContent}`, 10, doc.lastAutoTable.finalY + 10);
+            doc.save('time_tracking_report.pdf');
+        }
+
+        // Lightning Donation
+        async function makeLightningDonation() {
+            try {
+                if (!window.webln) {
+                    throw new Error('No Lightning wallet found. Please install e.g. Alby and enable WebLN.');
+                }
+                await window.webln.enable();
+                const amountInput = document.getElementById('donationAmount').value;
+                const amount = parseInt(amountInput) || 1000; // Default: 1000 Sats
+                if (amount < 1) {
+                    throw new Error('Please enter a valid amount in Sats.');
+                }
+
+                // Fetch LNURL for the Lightning address
+                const lnurlResponse = await fetch(`https://getalby.com/.well-known/lnurlp/SET-NAME`);
+                if (!lnurlResponse.ok) {
+                    throw new Error('Error fetching LNURL data.');
+                }
+                const lnurlData = await lnurlResponse.json();
+                if (!lnurlData.callback) {
+                    throw new Error('Invalid LNURL configuration.');
+                }
+
+                // Request invoice for the amount
+                const invoiceResponse = await fetch(`${lnurlData.callback}?amount=${amount * 1000}`); // Amount in millisats
+                if (!invoiceResponse.ok) {
+                    throw new Error('Error creating invoice.');
+                }
+                const invoiceData = await invoiceResponse.json();
+                if (!invoiceData.pr) {
+                    throw new Error('No invoice received.');
+                }
+
+                // Send payment via WebLN
+                await window.webln.sendPayment(invoiceData.pr);
+                document.getElementById('donationError').textContent = 'Thank you for your donation!';
+            } catch (err) {
+                document.getElementById('donationError').textContent = 'Donation failed: ' + err.message;
+            }
+        }
+
+        // Save Data
+        function saveData(key, data) {
+            localStorage.setItem(key, JSON.stringify(data));
+        }
+    </script>
+</body>
+</html>
