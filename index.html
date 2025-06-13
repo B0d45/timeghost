@@ -165,7 +165,7 @@
                 <option value="month">Month</option>
             </select>
             <input type="date" id="reportDate">
-            <button onclick="generateReport()">Generate Report</button>
+            <button onclick="console.log('Generate Report clicked'); generateReport()">Generate Report</button>
             <button onclick="exportToPDF()">PDF Export</button>
             <table id="reportTable" class="hidden">
                 <thead>
@@ -179,6 +179,7 @@
                 <tbody id="reportBody"></tbody>
             </table>
             <p>Total Hours: <span id="totalHours">0</span></p>
+            <p class="error" id="reportError"></p> <!-- Added for error display -->
         </div>
 
         <!-- Donation Section -->
@@ -192,7 +193,13 @@
     </div>
 
     <script>
-        const { jsPDF } = window.jspdf;
+        // Check if libraries are loaded
+        if (!window.jspdf || !window.NostrTools) {
+            console.error('CDN libraries not loaded. Check network or CDN availability.');
+            alert('Error: Required libraries not loaded. Please check console for details.');
+        }
+
+        const { jsPDF } = window.jspdf || {};
         let timerInterval = null;
         let startTime = null;
         let elapsedTime = 0;
@@ -202,7 +209,7 @@
         let pool = null;
 
         // Your Lightning Address
-        const LIGHTNING_ADDRESS = 'SET_LIGHTNING_ADRESS';
+        const LIGHTNING_ADDRESS = 'antispasti@getalby.com';
 
         // Data Structures
         let timeEntries = JSON.parse(localStorage.getItem('timeEntries')) || [];
@@ -211,6 +218,7 @@
 
         // Initialization
         document.addEventListener('DOMContentLoaded', () => {
+            console.log('DOM loaded, initializing app');
             setTodayDate();
             loadCustomRelay();
             updateSelectOptions();
@@ -218,6 +226,13 @@
             updateEntriesTable();
             console.log('Initialized timeEntries:', timeEntries);
             toggleFreeTextFields();
+            // Debug: Check report section elements
+            console.log('Report elements:', {
+                reportFilter: document.getElementById('reportFilter'),
+                reportDate: document.getElementById('reportDate'),
+                reportBody: document.getElementById('reportBody'),
+                totalHours: document.getElementById('totalHours')
+            });
         });
 
         // Load Custom Relay
@@ -238,10 +253,8 @@
         function addCustomRelay() {
             const customRelayInput = document.getElementById('customRelayInput').value.trim();
             const relaySelect = document.getElementById('relaySelect');
-            // Validation for wss:// or Onion links (ws://*.onion or wss://*.onion)
             const isValidRelay = /^(wss:\/\/[a-zA-Z0-9-.]+)|(wss?:\/\/[a-zA-Z0-9-]+\.onion)$/.test(customRelayInput);
             if (isValidRelay) {
-                // Check if relay already exists
                 const exists = Array.from(relaySelect.options).some(option => option.value === customRelayInput);
                 if (!exists) {
                     const option = document.createElement('option');
@@ -259,7 +272,7 @@
             }
         }
 
-        // Show/Hide Free Text Fields Based on Dropdown Selection
+        // Show/Hide Free Text Fields
         function toggleFreeTextFields() {
             const projectSelect = document.getElementById('projectSelect');
             const clientSelect = document.getElementById('clientSelect');
@@ -286,7 +299,6 @@
                 document.getElementById('pubkeyDisplay').textContent = window.NostrTools.nip19.npubEncode(publicKey);
                 isLoggedIn = true;
 
-                // Get relays from dropdown selection
                 const relaySelect = document.getElementById('relaySelect');
                 relays = Array.from(relaySelect.selectedOptions).map(option => option.value);
 
@@ -294,10 +306,8 @@
                     throw new Error('Please select at least one relay.');
                 }
 
-                // Initialize SimplePool for multiple relays
                 pool = new window.NostrTools.SimplePool();
 
-                // Connect to relays
                 await Promise.all(relays.map(async (url) => {
                     try {
                         const relay = await pool.ensureRelay(url);
@@ -308,7 +318,6 @@
                     }
                 }));
 
-                // Fetch existing events
                 await fetchNostrEvents();
 
                 toggleSections();
@@ -318,7 +327,7 @@
             }
         }
 
-        // Fetch Existing Nostr Events
+        // Fetch Nostr Events
         async function fetchNostrEvents() {
             try {
                 const filter = {
@@ -336,7 +345,7 @@
                     const type = event.tags.find(tag => tag[0] === 't')?.[1];
                     try {
                         const data = JSON.parse(event.content);
-                        if (type === 'time-entry') {
+                        if (type === 'time-entry' && data.start && data.duration) {
                             timeEntries.push(data);
                         } else if (type === 'project') {
                             projects.push(data);
@@ -348,7 +357,6 @@
                     }
                 });
 
-                // Save to localStorage as fallback
                 saveData('timeEntries', timeEntries);
                 saveData('projects', projects);
                 saveData('clients', clients);
@@ -362,7 +370,7 @@
             }
         }
 
-        // Create and Publish Nostr Event
+        // Publish Nostr Event
         async function publishNostrEvent(type, data) {
             try {
                 const event = {
@@ -632,72 +640,105 @@
         }
 
         function generateReport() {
-            const filter = document.getElementById('reportFilter').value;
-            const dateInput = document.getElementById('reportDate').value;
-            if (!dateInput) {
-                alert('Please select a date.');
-                return;
-            }
+            try {
+                console.log('Generating report...');
+                const reportError = document.getElementById('reportError');
+                reportError.textContent = '';
 
-            const selectedDate = new Date(dateInput);
-            selectedDate.setHours(0, 0, 0, 0);
-            let startDate, endDate;
+                // Debug: Check DOM elements
+                const filterElement = document.getElementById('reportFilter');
+                const dateElement = document.getElementById('reportDate');
+                const bodyElement = document.getElementById('reportBody');
+                const hoursElement = document.getElementById('totalHours');
+                if (!filterElement || !dateElement || !bodyElement || !hoursElement) {
+                    throw new Error('Missing report DOM elements. Check IDs.');
+                }
 
-            if (filter === 'day') {
-                startDate = new Date(selectedDate);
-                endDate = new Date(selectedDate);
-                endDate.setDate(endDate.getDate() + 1);
-            } else if (filter === 'week') {
-                startDate = new Date(selectedDate);
-                startDate.setDate(startDate.getDate() - startDate.getDay() + 1);
-                endDate = new Date(startDate);
-                endDate.setDate(endDate.getDate() + 7);
-            } else if (filter === 'month') {
-                startDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
-                endDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 1);
-            }
+                const filter = filterElement.value;
+                const dateInput = dateElement.value;
+                if (!dateInput) {
+                    reportError.textContent = 'Please select a date.';
+                    return;
+                }
 
-            console.log('Filter:', filter, 'Start:', startDate, 'End:', endDate);
-            console.log('All timeEntries:', timeEntries);
+                const selectedDate = new Date(dateInput);
+                if (isNaN(selectedDate)) {
+                    reportError.textContent = 'Invalid date selected.';
+                    return;
+                }
+                selectedDate.setHours(0, 0, 0, 0);
+                let startDate, endDate;
 
-            const filteredEntries = timeEntries.filter(entry => {
-                const entryDate = new Date(entry.start);
-                entryDate.setHours(0, 0, 0, 0);
-                return entryDate >= startDate && entryDate < endDate;
-            });
+                if (filter === 'day') {
+                    startDate = new Date(selectedDate);
+                    endDate = new Date(selectedDate);
+                    endDate.setDate(endDate.getDate() + 1);
+                } else if (filter === 'week') {
+                    startDate = new Date(selectedDate);
+                    startDate.setDate(startDate.getDate() - startDate.getDay() + 1);
+                    endDate = new Date(startDate);
+                    endDate.setDate(endDate.getDate() + 7);
+                } else if (filter === 'month') {
+                    startDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+                    endDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 1);
+                }
 
-            console.log('Filtered entries:', filteredEntries);
+                console.log('Filter:', filter, 'Start:', startDate, 'End:', endDate);
+                console.log('All timeEntries:', timeEntries);
 
-            const reportBody = document.getElementById('reportBody');
-            reportBody.innerHTML = '';
-            let totalDuration = 0;
-
-            if (filteredEntries.length === 0) {
-                reportBody.innerHTML = '<tr><td colspan="4">No entries found for the period.</td></tr>';
-            } else {
-                filteredEntries.forEach(entry => {
-                    const project = entry.projectId ? projects.find(p => p.id === entry.projectId) : null;
-                    const client = entry.clientId ? clients.find(c => c.id === clientId) : null;
-                    const durationFormatted = formatDuration(entry.duration);
-                    const projectDisplay = entry.projectFreeText || (project ? project.name : 'No Project');
-                    const clientDisplay = entry.clientFreeText || (client ? client.name : 'No Client');
-                    totalDuration += entry.duration;
-                    reportBody.innerHTML += `
-                        <tr>
-                            <td>${new Date(entry.start).toLocaleDateString('en-GB')}</td>
-                            <td>${projectDisplay}</td>
-                            <td>${clientDisplay}</td>
-                            <td>${durationFormatted}</td>
-                        </tr>
-                    `;
+                const filteredEntries = timeEntries.filter(entry => {
+                    if (!entry.start) {
+                        console.warn('Invalid entry, missing start time:', entry);
+                        return false;
+                    }
+                    const entryDate = new Date(entry.start);
+                    if (isNaN(entryDate)) {
+                        console.warn('Invalid entry date:', entry);
+                        return false;
+                    }
+                    entryDate.setHours(0, 0, 0, 0);
+                    return entryDate >= startDate && entryDate < endDate;
                 });
-            }
 
-            document.getElementById('totalHours').textContent = formatDuration(totalDuration);
-            document.getElementById('reportTable').classList.remove('hidden');
+                console.log('Filtered entries:', filteredEntries);
+
+                bodyElement.innerHTML = '';
+                let totalDuration = 0;
+
+                if (filteredEntries.length === 0) {
+                    bodyElement.innerHTML = '<tr><td colspan="4">No entries found for the period.</td></tr>';
+                } else {
+                    filteredEntries.forEach(entry => {
+                        const project = entry.projectId ? projects.find(p => p.id === entry.projectId) : null;
+                        const client = entry.clientId ? clients.find(c => c.id === entry.clientId) : null;
+                        const durationFormatted = formatDuration(entry.duration);
+                        const projectDisplay = entry.projectFreeText || (project ? project.name : 'No Project');
+                        const clientDisplay = entry.clientFreeText || (client ? client.name : 'No Client');
+                        totalDuration += entry.duration || 0;
+                        bodyElement.innerHTML += `
+                            <tr>
+                                <td>${new Date(entry.start).toLocaleDateString('en-GB')}</td>
+                                <td>${projectDisplay}</td>
+                                <td>${clientDisplay}</td>
+                                <td>${durationFormatted}</td>
+                            </tr>
+                        `;
+                    });
+                }
+
+                hoursElement.textContent = formatDuration(totalDuration);
+                document.getElementById('reportTable').classList.remove('hidden');
+            } catch (err) {
+                console.error('Error generating report:', err);
+                document.getElementById('reportError').textContent = 'Failed to generate report: ' + err.message;
+            }
         }
 
         function exportToPDF() {
+            if (!window.jspdf) {
+                alert('PDF library not loaded.');
+                return;
+            }
             const reportBody = document.getElementById('reportBody');
             if (!reportBody.hasChildNodes() || reportBody.querySelector('tr td').textContent.includes('No entries')) {
                 alert('Please generate a report with entries first.');
@@ -725,13 +766,12 @@
                 }
                 await window.webln.enable();
                 const amountInput = document.getElementById('donationAmount').value;
-                const amount = parseInt(amountInput) || 1000; // Default: 1000 Sats
+                const amount = parseInt(amountInput) || 1000;
                 if (amount < 1) {
                     throw new Error('Please enter a valid amount in Sats.');
                 }
 
-                // Fetch LNURL for the Lightning address
-                const lnurlResponse = await fetch(`https://getalby.com/.well-known/lnurlp/SET-NAME`);
+                const lnurlResponse = await fetch(`https://getalby.com/.well-known/lnurlp/antispasti`);
                 if (!lnurlResponse.ok) {
                     throw new Error('Error fetching LNURL data.');
                 }
@@ -740,8 +780,7 @@
                     throw new Error('Invalid LNURL configuration.');
                 }
 
-                // Request invoice for the amount
-                const invoiceResponse = await fetch(`${lnurlData.callback}?amount=${amount * 1000}`); // Amount in millisats
+                const invoiceResponse = await fetch(`${lnurlData.callback}?amount=${amount * 1000}`);
                 if (!invoiceResponse.ok) {
                     throw new Error('Error creating invoice.');
                 }
@@ -750,7 +789,6 @@
                     throw new Error('No invoice received.');
                 }
 
-                // Send payment via WebLN
                 await window.webln.sendPayment(invoiceData.pr);
                 document.getElementById('donationError').textContent = 'Thank you for your donation!';
             } catch (err) {
