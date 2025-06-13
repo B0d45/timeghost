@@ -209,7 +209,7 @@
         let pool = null;
 
         // Your Lightning Address
-        const LIGHTNING_ADDRESS = 'antispasti@getalby.com';
+        const LIGHTNING_ADDRESS = 'SET_UP_LIGHTNINGADDRESS_HERE';
 
         // Data Structures
         let timeEntries = JSON.parse(localStorage.getItem('timeEntries')) || [];
@@ -771,7 +771,7 @@
                     throw new Error('Please enter a valid amount in Sats.');
                 }
 
-                const lnurlResponse = await fetch(`https://getalby.com/.well-known/lnurlp/antispasti`);
+                const lnurlResponse = await fetch(`https://getalby.com/.well-known/lnurlp/SET_LNURL-PAY_ENDPOINT`);
                 if (!lnurlResponse.ok) {
                     throw new Error('Error fetching LNURL data.');
                 }
